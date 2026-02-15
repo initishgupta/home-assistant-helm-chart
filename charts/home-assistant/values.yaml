@@ -43,7 +43,7 @@ podSecurityContext:
   # fsGroupChangePolicy: "OnRootMismatch"
 
 # Environment variables
-env:
+env: []
 # - name: TZ
 #   value: Europe/Prague
 # - name: SOME_VAR_FROM_CONFIG_MAP
@@ -51,27 +51,22 @@ env:
 #     configMapRef:
 #       name: configmap-name
 #       key: config-key
- - name: PUSHOVER_APP_KEY
-   valueFrom:
-     secretKeyRef:
-       name: pushover-app-key   # Name of the secret
-       key: pushover-app
- - name: PUSHOVER_USER_KEY
-   valueFrom:
-     secretKeyRef:
-       name: pushover-user-key   # Name of the secret
-       key: pushover-user
- - name: PYTHONPATH
-   value: /config/deps      
+# - name: SOME_SECRET
+#   valueFrom:
+#     secretKeyRef:
+#       name: secret-name
+#       key: secret-key
 
 # Use environment variables from ConfigMaps or Secrets
 envFrom: []
 # - configMapRef:
-#     name: config-map-name   
+#     name: config-map-name
+# - secretRef:
+#     name: secret-name
 
 hostPort:
   # Enable 'hostPort' or not
-  enabled: true
+  enabled: false
   port: 8123
 
 # Specifies if the containers should be started in hostNetwork mode.
@@ -81,14 +76,11 @@ hostNetwork: false
 
 # Set the dnsPolicy (you'll want ClusterFirstWithHostNet if running on hostNetwork to reac
 # other k8s services via DNS
-dnsPolicy: ClusterFirst
+# dnsPolicy: ClusterFirst
 
 # Container security context settings
 securityContext:
-  # capabilities:
-  #   add: ["SYS_RAWIO"]
-  # readOnlyRootFilesystem: false
-  privileged: true
+  {}
   # capabilities:
   #   drop:
   #   - ALL
@@ -112,23 +104,11 @@ dnsConfig: {}
 # Service settings
 service:
   # Service type (ClusterIP, NodePort, LoadBalancer, or ExternalName)
-  type: NodePort
+  type: ClusterIP
   # Service port
-  port: 8123
-  nodePort: 31234
+  port: 8080
   # Annotations to add to the service
   annotations: {}
-
-# nodePortService:
-#   enabled: true
-#   # Define the NodePort service type
-#   type: NodePort
-#   # Set the nodePort manually or leave it empty to let Kubernetes assign one
-#   nodePort: 30080
-#   # Define the service port for NodePort (should match the main service port)
-#   port: 8123
-#   # Additional annotations if needed
-#   annotations: {}  
 
 # Ingress settings
 ingress:
@@ -151,6 +131,22 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+
+# Additional ingresses for exposing Home Assistant on different paths/hosts
+# Useful for IoT devices that don't support TLS or need specific path routing
+additionalIngresses: []
+#  - name: dlna
+#    className: ""
+#    labels: {}
+#    annotations: {}
+#    rules:
+#      - host: ""  # Optional: omit for path-only routing
+#        paths:
+#          - path: /notify
+#            pathType: Prefix
+#            serviceName: ""  # Optional: defaults to main HA service
+#            servicePort: ""  # Optional: defaults to service.port
+#    tls: []
 
 # Resource settings for the container
 resources:
@@ -175,34 +171,33 @@ tolerations: []
 # Affinity settings for controlling pod scheduling
 affinity: {}
 
-initContainers:
-  - name: init-hacs
-    image: bash
-    command: ["bash", "-c", "cd /config && wget -O - https://get.hacs.xyz | bash -"]
-    volumeMounts:
-      - mountPath: /config
-        name: flora-home-assistant
 # Set a priorityClassName on Home Assistant pods
 priorityClassName: ""
 
-  # - name: init-myservice
-  #   image: busybox
-  #   command: ['sh', '-c', 'until nslookup myservice; do echo waiting for myservice; sleep 2; done;']
+initContainers: []
+# Example of integrating a custom component before starting the Home Assistant container
+# Uses emptyDir custom-components, see below
+# - name: init-panasonic-cc
+#   image: alpine/git
+#   command: [ "/bin/sh", "-c" ]
+#   args:
+#   - |
+#     git clone https://github.com/sockless-coding/panasonic_cc.git /git/panasonic_cc
+#     cp -r /git/panasonic_cc/custom_components/panasonic_cc/* /panasonic_cc
+#     chown -R 1000:1000 /panasonic_cc/*
+#   volumeMounts:
+#   - name: custom-components
+#     mountPath: /panasonic_cc
 
 # Configuration for Home Assistant
 configuration:
   # Enable or disable the configuration setup for Home Assistant
-  enabled: true
+  enabled: false
   # Force init will merge the current configuration file with the default configuration on every start
   # This is useful when you want to ensure that the configuration file is always up to date
-  forceInit: true
+  forceInit: false
   # List of trusted proxies in the format of CIDR notation in a case of using a reverse proxy
   # Here is the list of the most common private IP ranges, use your list of possible trusted proxies, usually, it's the IP of the reverse proxy
-  notify:
-    - name: pushover
-      platform: pushover
-      api_key: ${PUSHOVER_APP_KEY}
-      user_key: ${PUSHOVER_USER_KEY}    
   trusted_proxies:
     - 10.0.0.0/8
     - 172.16.0.0/12
@@ -213,17 +208,6 @@ configuration:
   templateConfig: |-
     # Loads default set of integrations. Do not remove.
     default_config:
-    mqtt:
-      sensor:
-        - name: "Stairs PIR"
-          state_topic: "florahome/florasensornode1"
-          value_template: "{{ `{{ value_json.motion }}` }}"
-
-    #ZHA Configuration
-    # zha:
-    #   database_path: /config/zigbee.db
-    #   usb_path: /dev/ttyUSB0
-    #   radio_type: znp
 
     {{- if or .Values.ingress.enabled .Values.ingress.external }}
     http:
@@ -322,17 +306,17 @@ configuration:
 # Persistence values for the Home Assistant instance
 persistence:
   # Enable or disable persistence
-  enabled: true
+  enabled: false
   # Access mode for the persistent volume claim
   accessMode: ReadWriteOnce
   # Size of the persistent volume claim
-  size: 10Gi
+  size: 5Gi
   # Storage class for the persistent volume claim
   storageClass: ""
   # Name of the existing volume for the StatefulSet, this option can be used to bind to an existing PV
   existingVolume: ""
   # Name of the existing PVC to use with Deployment, this option can be used to use an existing PVC
-  existingClaim: "flora-home-assistant-flora-home-assistant-0"
+  existingClaim: ""
   # Annotations to add to the persistent volume claim
   annotations: {}
   #  k8up.io/backup: "true"
@@ -343,11 +327,23 @@ persistence:
   matchExpressions: {}
 
 # if you need any additional volumes, you can define them here
-# if you need any additional volumes, you can define them here
-# if you need any additional volumes, you can define them here
 additionalVolumes: []
+  # - name: custom-components
+  #   emptyDir: {}
 
+  # - hostPath:
+  #     path: >-
+  #       /dev/serial/by-id/usb-Silicon_Labs_Sonoff_Zigbee_3.0_USB_Dongle_Plus_0001-if00-port0
+  #     type: CharDevice
+  #   name: usb
+# if you need any additional volume mounts, you can define them here
 additionalMounts: []
+  # - mountPath: /config/custom_components/panasonic_cc
+  #   name: custom-components
+
+  # - mountPath: /dev/ttyACM0
+  #   name: usb
+
 # if you need to expose additional ports
 additionalPorts: []
 #  - name: sia
@@ -355,14 +351,7 @@ additionalPorts: []
 #    protocol: TCP
 
 # if you need to expose additional services
-additionalServices:
-  - name: nodeport
-    type: NodePort
-    port: 8123
-    targetPort: http
-    protocol: TCP
-    nodePort: 30080  # Optional: Set manually or let Kubernetes assign one
-    annotations: {}
+additionalServices: []
 #  - name: sia
 #    port: 8124
 #    targetPort: sia
@@ -426,7 +415,18 @@ addons:
       # Image pull policy for the code-server image
       pullPolicy: IfNotPresent
       # Tag for the code-server image
-      tag: "4.99.4"
+      tag: "4.107.0"
+    # Authentication settings for the code-server addon
+    auth:
+      # Enable or disable authentication (if disabled, --auth none is used)
+      enabled: false
+      # Existing secret containing the password
+      # The secret should have a key 'password' containing the code-server password
+      existingSecret: ""
+      # Password for code-server (only used if existingSecret is not set)
+      # If neither existingSecret nor password is set, code-server will generate a random password
+      # which will be printed in the logs
+      password: ""
     # Service settings
     service:
       # Service type (ClusterIP, NodePort, LoadBalancer, or ExternalName)
@@ -464,3 +464,6 @@ statefulSetAnnotations: {}
 
 # Annotations to add to the deployment
 deploymentAnnotations: {}
+
+# Deployment strategy type (RollingUpdate, Recreate)
+deploymentStrategy: RollingUpdate
