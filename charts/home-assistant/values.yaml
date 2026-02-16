@@ -53,7 +53,7 @@ env:
    valueFrom:
      secretKeyRef:
        name: pushover-user-key
-       key: pushover_user
+       key: pushover-user
  - name: PYTHONPATH
    value: /config/deps
 # - name: TZ
