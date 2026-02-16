@@ -43,7 +43,19 @@ podSecurityContext:
   # fsGroupChangePolicy: "OnRootMismatch"
 
 # Environment variables
-env: []
+env:
+ - name: PUSHOVER_APP_KEY
+   valueFrom:
+     secretKeyRef:
+       name: pushover-app-key
+       key: pushover-app
+ - name: PUSHOVER_USER_KEY
+   valueFrom:
+     secretKeyRef:
+       name: pushover-user-key
+       key: pushover_user
+ - name: PYTHONPATH
+   value: /config/deps
 # - name: TZ
 #   value: Europe/Prague
 # - name: SOME_VAR_FROM_CONFIG_MAP
@@ -66,7 +78,7 @@ envFrom: []
 
 hostPort:
   # Enable 'hostPort' or not
-  enabled: false
+  enabled: true
   port: 8123
 
 # Specifies if the containers should be started in hostNetwork mode.
@@ -76,11 +88,11 @@ hostNetwork: false
 
 # Set the dnsPolicy (you'll want ClusterFirstWithHostNet if running on hostNetwork to reac
 # other k8s services via DNS
-# dnsPolicy: ClusterFirst
+dnsPolicy: ClusterFirst
 
 # Container security context settings
 securityContext:
-  {}
+  privileged: true
   # capabilities:
   #   drop:
   #   - ALL
@@ -104,9 +116,10 @@ dnsConfig: {}
 # Service settings
 service:
   # Service type (ClusterIP, NodePort, LoadBalancer, or ExternalName)
-  type: ClusterIP
+  type: NodePort
   # Service port
-  port: 8080
+  port: 8123
+  nodePort: 31234
   # Annotations to add to the service
   annotations: {}
 
@@ -192,12 +205,17 @@ initContainers: []
 # Configuration for Home Assistant
 configuration:
   # Enable or disable the configuration setup for Home Assistant
-  enabled: false
+  enabled: true
   # Force init will merge the current configuration file with the default configuration on every start
   # This is useful when you want to ensure that the configuration file is always up to date
-  forceInit: false
+  forceInit: true
   # List of trusted proxies in the format of CIDR notation in a case of using a reverse proxy
   # Here is the list of the most common private IP ranges, use your list of possible trusted proxies, usually, it's the IP of the reverse proxy
+  notify:
+    - name: pushover
+      platform: pushover
+      api_key: ${PUSHOVER_APP_KEY}
+      user_key: ${PUSHOVER_USER_KEY}
   trusted_proxies:
     - 10.0.0.0/8
     - 172.16.0.0/12
@@ -208,6 +226,17 @@ configuration:
   templateConfig: |-
     # Loads default set of integrations. Do not remove.
     default_config:
+    mqtt:
+      sensor:
+        - name: "Stairs PIR"
+          state_topic: "florahome/florasensornode1"
+          value_template: "{{ `{{ value_json.motion }}` }}"
+
+    #ZHA Configuration
+    # zha:
+    #   database_path: /config/zigbee.db
+    #   usb_path: /dev/ttyUSB0
+    #   radio_type: znp
 
     {{- if or .Values.ingress.enabled .Values.ingress.external }}
     http:
@@ -306,17 +335,17 @@ configuration:
 # Persistence values for the Home Assistant instance
 persistence:
   # Enable or disable persistence
-  enabled: false
+  enabled: true
   # Access mode for the persistent volume claim
   accessMode: ReadWriteOnce
   # Size of the persistent volume claim
-  size: 5Gi
+  size: 10Gi
   # Storage class for the persistent volume claim
   storageClass: ""
   # Name of the existing volume for the StatefulSet, this option can be used to bind to an existing PV
   existingVolume: ""
   # Name of the existing PVC to use with Deployment, this option can be used to use an existing PVC
-  existingClaim: ""
+  existingClaim: "flora-home-assistant-flora-home-assistant-0"
   # Annotations to add to the persistent volume claim
   annotations: {}
   #  k8up.io/backup: "true"
@@ -351,7 +380,14 @@ additionalPorts: []
 #    protocol: TCP
 
 # if you need to expose additional services
-additionalServices: []
+additionalServices:
+  - name: nodeport
+    type: NodePort
+    port: 8123
+    targetPort: http
+    protocol: TCP
+    nodePort: 30080
+    annotations: {}
 #  - name: sia
 #    port: 8124
 #    targetPort: sia
