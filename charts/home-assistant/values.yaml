@@ -54,8 +54,6 @@ env:
      secretKeyRef:
        name: pushover-user-key
        key: pushover-user
- - name: PYTHONPATH
-   value: /config/deps
 # - name: TZ
 #   value: Europe/Prague
 # - name: SOME_VAR_FROM_CONFIG_MAP
