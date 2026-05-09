@@ -1,4 +1,15 @@
 {{/*
+Allow the release namespace to be overridden for multi-namespace deployments in combined charts
+*/}}
+{{- define "home-assistant.namespace" -}}
+  {{- if .Values.namespaceOverride -}}
+    {{- .Values.namespaceOverride -}}
+  {{- else -}}
+    {{- .Release.Namespace -}}
+  {{- end -}}
+{{- end -}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "home-assistant.name" -}}
@@ -33,13 +44,37 @@ Create chart name and version as used by the chart label.
 {{/*
 Common labels
 */}}
+{{- define "home-assistant.standardLabels" -}}
+{{- $labels := dict -}}
+{{- $labels = mergeOverwrite $labels (include "home-assistant.selectorLabels" . | fromYaml) -}}
+{{- $labels = mergeOverwrite $labels (dict "helm.sh/chart" (include "home-assistant.chart" .)) -}}
+{{- if .Chart.AppVersion -}}
+{{- $labels = mergeOverwrite $labels (dict "app.kubernetes.io/version" .Chart.AppVersion) -}}
+{{- end -}}
+{{- $labels = mergeOverwrite $labels (dict "app.kubernetes.io/managed-by" .Release.Service) -}}
+{{- toYaml $labels -}}
+{{- end -}}
+
+{{/*
+Common labels with user overrides
+*/}}
 {{- define "home-assistant.labels" -}}
-helm.sh/chart: {{ include "home-assistant.chart" . }}
-{{ include "home-assistant.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- $labels := dict -}}
+{{- $labels = mergeOverwrite $labels (include "home-assistant.standardLabels" . | fromYaml) -}}
+{{- with .Values.commonLabels -}}
+{{- $labels = mergeOverwrite $labels . -}}
+{{- end -}}
+{{- toYaml $labels -}}
+{{- end -}}
+
+{{/*
+Pod labels with selector labels taking precedence
+*/}}
+{{- define "home-assistant.podLabels" -}}
+{{- $labels := dict -}}
+{{- $labels = mergeOverwrite $labels (include "home-assistant.labels" . | fromYaml) -}}
+{{- $labels = mergeOverwrite $labels (include "home-assistant.selectorLabels" . | fromYaml) -}}
+{{- toYaml $labels -}}
 {{- end }}
 
 {{/*
