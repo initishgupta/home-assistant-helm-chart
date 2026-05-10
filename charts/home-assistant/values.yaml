@@ -256,11 +256,9 @@ configuration:
           state_topic: "florahome/florasensornode1"
           value_template: "{{ `{{ value_json.motion }}` }}"
 
-    notify:
-      - name: pushover
-        platform: pushover
-        api_key: !env_var PUSHOVER_APP_KEY
-        user_key: !env_var PUSHOVER_USER_KEY
+    # NOTE: Pushover must be configured via the HA UI
+    # (Settings -> Devices & Services -> Add Integration -> Pushover).
+    # The legacy YAML `notify: - platform: pushover` is no longer supported.
 
     #ZHA Configuration
     # zha:
