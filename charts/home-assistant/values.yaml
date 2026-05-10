@@ -196,7 +196,22 @@ affinity: {}
 # Set a priorityClassName on Home Assistant pods
 priorityClassName: ""
 
-initContainers: []
+initContainers:
+  # Wait for DNS to be reachable before starting HA. With hostNetwork=true,
+  # the pod often starts before kube-dns is reachable, causing integrations
+  # like pushover/opower/met.no to fail their one-shot startup validation.
+  - name: wait-for-dns
+    image: busybox:1.37
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        for i in $(seq 1 60); do
+          if nslookup api.pushover.net >/dev/null 2>&1; then
+            echo "DNS ready after ${i}s"; exit 0
+          fi
+          echo "Waiting for DNS... ($i/60)"; sleep 1
+        done
+        echo "DNS not ready after 60s, continuing anyway"; exit 0
 # Example of integrating a custom component before starting the Home Assistant container
 # Uses emptyDir custom-components, see below
 # - name: init-panasonic-cc
