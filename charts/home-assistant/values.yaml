@@ -433,36 +433,42 @@ livenessProbe:
     - /bin/sh
     - -c
     - |
-      # Combined liveness check: HTTP responsive AND ZHA EZSP heartbeat fresh.
+      # Combined liveness check: HTTP responsive AND (SLZB integration alive OR ZHA radio alive).
       # ZHA self-heal automation handles software-recoverable failures via Pushover.
       # This probe is the LAST RESORT for bellows-event-loop-closed and similar
       # process-level wedges that require a full Python interpreter restart.
       #
-      # Returns 0 (healthy) if:
-      #   - HTTP / responds (any status, even 405) AND
-      #   - EZSP MAC RX broadcast counter has updated within last 900 seconds (15 min)
-      # Returns 1 (unhealthy = restart) only if BOTH:
-      #   - HTTP unreachable OR
-      #   - DB query succeeds AND counter is stale >900s
-      # Returns 0 if DB query fails (don't restart on transient SQLite locks)
-      # Returns 0 if sensor row doesn't exist (don't restart if user disables it)
+      # Two-layer heartbeat (defense in depth):
+      #   Layer 1 (HA->SLZB HTTP poll): sensor.slzb_06m_zigbee_chip_temp updates every ~30s
+      #     If this stops, the SMLIGHT integration's polling loop is dead.
+      #   Layer 2 (SLZB->Zigbee radio): any ZHA-reported entity updating
+      #     If devices report, the EZSP/bellows path is functional.
+      #
+      # Restart only when BOTH layers are silent for 30+ minutes (truly wedged).
+      # If only one layer is silent, the SLZB integration alerts handle it.
+      # Returns 0 if DB query fails (don't restart on transient SQLite locks).
       set -e
-      # HTTP check
       curl -fsS -o /dev/null -m 5 http://127.0.0.1:8123/ || \
         curl -fsS -o /dev/null -m 5 -X OPTIONS http://127.0.0.1:8123/ || exit 1
-      # ZHA heartbeat check (graceful: only fails if we KNOW it's stale)
       python3 -c "
       import sqlite3, sys, time
       try:
           c = sqlite3.connect('/config/home-assistant_v2.db', timeout=5)
           cur = c.cursor()
-          cur.execute(\"SELECT s.last_updated_ts FROM states s JOIN states_meta m ON s.metadata_id=m.metadata_id WHERE m.entity_id='sensor.generic_zigbee_coordinator_ezsp_mac_rx_broadcast' ORDER BY s.last_updated_ts DESC LIMIT 1\")
+          # Layer 1: SLZB integration heartbeat (HA can talk to coordinator via HTTP)
+          cur.execute(\"SELECT s.last_updated_ts FROM states s JOIN states_meta m ON s.metadata_id=m.metadata_id WHERE m.entity_id='sensor.slzb_06m_zigbee_chip_temp' ORDER BY s.last_updated_ts DESC LIMIT 1\")
           r = cur.fetchone()
-          if r is None:
+          slzb_age = (time.time() - r[0]) if r else None
+          # Layer 2: ZHA radio heartbeat (any zigbee device reporting)
+          cur.execute(\"\"\"SELECT MAX(s.last_updated_ts) FROM states s JOIN states_meta m ON s.metadata_id=m.metadata_id WHERE m.entity_id LIKE 'sensor.generic_zigbee_coordinator_ezsp_%' OR m.entity_id LIKE 'sensor.%_battery_2' OR m.entity_id LIKE 'binary_sensor.%_opening' OR m.entity_id LIKE 'binary_sensor.%_motion'\"\"\")
+          r = cur.fetchone()
+          zha_age = (time.time() - r[0]) if r and r[0] else None
+          if slzb_age is None and zha_age is None:
               sys.exit(0)
-          age = time.time() - r[0]
-          if age > 900:
-              print(f'EZSP heartbeat stale: {int(age)}s', file=sys.stderr)
+          slzb_dead = slzb_age is None or slzb_age > 600
+          zha_dead = zha_age is None or zha_age > 1800
+          if slzb_dead and zha_dead:
+              print(f'BOTH layers silent: slzb_age={slzb_age} zha_age={zha_age}', file=sys.stderr)
               sys.exit(1)
           sys.exit(0)
       except Exception as e:
